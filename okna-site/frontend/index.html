@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Окна-Город | Пластиковые окна и двери</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <!-- Шапка сайта -->
+    <header class="header">
+        <div class="container header-top">
+            <div class="logo">
+                <span class="logo-text">Окна<span class="logo-accent">Город</span></span>
+            </div>
+            
+            <div class="city-selector" id="citySelector">
+                <i class="fas fa-map-marker-alt"></i>
+                <span id="selectedCity">Москва</span>
+                <i class="fas fa-chevron-down"></i>
+            </div>
+            
+            <div class="header-contacts">
+                <div class="phone">
+                    <i class="fas fa-phone"></i>
+                    <div>
+                        <div class="phone-number">+7 (800) 123-45-67</div>
+                        <div class="phone-desc">Круглосуточно, бесплатно</div>
+                    </div>
+                </div>
+                <button class="btn btn-outline" id="measureBtn">
+                    <i class="fas fa-ruler"></i> Заказать замер
+                </button>
+                <button class="btn btn-primary" id="calculatorBtn">
+                    <i class="fas fa-calculator"></i> Калькулятор
+                </button>
+            </div>
+        </div>
+        
+        <nav class="main-nav">
+            <div class="container">
+                <ul class="nav-list">
+                    <li><a href="#">Окна</a></li>
+                    <li><a href="#">Двери</a></li>
+                    <li><a href="#">Балконы</a></li>
+                    <li><a href="#">Аксессуары</a></li>
+                    <li><a href="#">Наши работы</a></li>
+                    <li><a href="#">Контакты</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Главный баннер -->
+    <section class="hero">
+        <div class="container hero-container">
+            <div class="hero-content">
+                <h1>Качественные окна <br>для вашего дома</h1>
+                <p class="hero-subtitle">Немецкие профили, российская сборка. Гарантия 10 лет</p>
+                
+                <div class="hero-calc">
+                    <h3>Узнайте стоимость вашего окна</h3>
+                    <div class="calc-form">
+                        <input type="number" id="width" placeholder="Ширина (мм)" value="1300">
+                        <input type="number" id="height" placeholder="Высота (мм)" value="1400">
+                        <button class="btn btn-large" id="calculateBtn">Рассчитать</button>
+                    </div>
+                    <div id="calcResult" class="calc-result"></div>
+                </div>
+            </div>
+            <div class="hero-image">
+                <!-- Фон через CSS -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Наши продукты -->
+    <section class="products">
+        <div class="container">
+            <h2 class="section-title">Наша продукция</h2>
+            <div class="products-grid" id="productsGrid">
+                <!-- Товары загрузятся через JavaScript -->
+                <div class="loading">Загрузка...</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Преимущества -->
+    <section class="advantages">
+        <div class="container">
+            <h2 class="section-title">Почему выбирают нас</h2>
+            <div class="advantages-grid">
+                <div class="advantage-item">
+                    <i class="fas fa-truck"></i>
+                    <h3>Бесплатная доставка</h3>
+                    <p>При заказе от 50 000 ₽</p>
+                </div>
+                <div class="advantage-item">
+                    <i class="fas fa-clock"></i>
+                    <h3>Собственное производство</h3>
+                    <p>Сроки от 3 дней</p>
+                </div>
+                <div class="advantage-item">
+                    <i class="fas fa-ruler"></i>
+                    <h3>Бесплатный замер</h3>
+                    <p>Выезд инженера в удобное время</p>
+                </div>
+                <div class="advantage-item">
+                    <i class="fas fa-shield-alt"></i>
+                    <h3>Гарантия 10 лет</h3>
+                    <p>На монтаж и конструкции</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Форма обратной связи -->
+    <section class="callback">
+        <div class="container">
+            <div class="callback-box">
+                <h2>Остались вопросы?</h2>
+                <p>Закажите бесплатный звонок, мы перезвоним через 5 минут</p>
+                <form id="callbackForm" class="callback-form">
+                    <input type="text" placeholder="Ваше имя" id="callbackName">
+                    <input type="tel" placeholder="Телефон" id="callbackPhone" required>
+                    <button type="submit" class="btn btn-primary">Заказать звонок</button>
+                </form>
+                <div id="callbackMessage" class="form-message"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-col">
+                    <h4>Окна-Город</h4>
+                    <p>Производство и установка пластиковых окон с хз какого года</p>
+                </div>
+                <div class="footer-col">
+                    <h4>Продукция</h4>
+                    <ul>
+                        <li><a href="#">Пластиковые окна</a></li>
+                        <li><a href="#">Панорамные двери</a></li>
+                        <li><a href="#">Балконное остекление</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4>Контакты</h4>
+                    <p><i class="fas fa-phone"></i> +7 (800) 123-45-67</p>
+                    <p><i class="fas fa-envelope"></i> info@okna-city.ru</p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Окна-Город. Все права защищены.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Модальное окно для замера -->
+    <div class="modal" id="measureModal">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2>Заказать бесплатный замер</h2>
+            <form id="measureForm">
+                <input type="text" placeholder="Ваше имя" id="measureName" required>
+                <input type="tel" placeholder="Телефон" id="measurePhone" required>
+                <input type="text" placeholder="Адрес (необязательно)" id="measureAddress">
+                <button type="submit" class="btn btn-primary">Отправить</button>
+            </form>
+            <div id="measureMessage" class="form-message"></div>
+        </div>
+    </div>
+
+    <!-- Модальное окно выбора города -->
+    <div class="modal" id="cityModal">
+        <div class="modal-content">
+            <span class="modal-close city-close">&times;</span>
+            <h2>Выберите ваш город</h2>
+            <div class="city-list">
+                <button class="city-btn" data-city="Москва">Москва</button>
+                <button class="city-btn" data-city="Ковров">Ковров</button>
+                <button class="city-btn" data-city="Владимир">Владимир</button>
+            </div>
+            <button class="btn btn-outline" id="detectCity">Определить автоматически</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
