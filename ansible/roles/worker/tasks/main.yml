@@ -1,0 +1,9 @@
+---
+- name: Проверить, в кластере ли нода
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+- name: Присоединить воркер к кластеру
+  command: "{{ hostvars['master'].join_command }}"
+  when: not kubelet_conf.stat.exists
