@@ -1,0 +1,176 @@
+---
+# =====================================================================
+# 01-bootstrap.yml — СБОРКА КЛАСТЕРА Kubernetes через kubeadm
+# =====================================================================
+# Автоматизирует то, что мы делали РУКАМИ:
+#   1. kubeadm init на master
+#   2. настройка kubeconfig (~/.kube/config)
+#   3. установка CNI (Calico)
+#   4. генерация join-токена
+#   5. kubeadm join на worker'ах
+#
+# ВАЖНО: playbook ИДЕМПОТЕНТНЫЙ. На уже собранном кластере он не
+# сломает ничего — каждый шаг проверяет "а не сделано ли уже".
+# Можно запускать сколько угодно раз.
+#
+# Запускать ПОСЛЕ 00-prereqs.yml (ноды должны быть подготовлены).
+# =====================================================================
+
+
+# #####################################################################
+# PLAY 1 — инициализация control-plane (только на master)
+# #####################################################################
+- name: Инициализация control-plane
+  hosts: master
+  become: true
+
+  tasks:
+    # --- Проверяем, инициализирован ли кластер УЖЕ ---
+    # Признак готового control-plane — наличие admin.conf.
+    # Если он есть, kubeadm init повторно делать НЕЛЬЗЯ (упадёт).
+    - name: Проверить, инициализирован ли кластер
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_admin_conf      # сохраняем результат в переменную
+
+    - name: kubeadm init (только если кластера ещё нет)
+      ansible.builtin.command:
+        cmd: >
+          kubeadm init
+          --apiserver-advertise-address={{ control_plane_ip }}
+          --pod-network-cidr={{ pod_cidr }}
+          --service-cidr={{ service_cidr }}
+      # when: выполнить шаг ТОЛЬКО если admin.conf НЕ существует.
+      # Это и есть идемпотентность — на готовом кластере шаг пропускается.
+      when: not kubeadm_admin_conf.stat.exists
+      register: kubeadm_init
+
+    # --- Настройка kubeconfig для root, чтобы работал kubectl ---
+    - name: Создать каталог ~/.kube
+      ansible.builtin.file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Скопировать admin.conf в ~/.kube/config
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: true               # src на УДАЛЁННОЙ ноде, не локально
+        owner: root
+        mode: '0600'
+
+
+# #####################################################################
+# PLAY 2 — установка CNI (Calico). Тоже только на master.
+# #####################################################################
+- name: Установка сетевого плагина Calico
+  hosts: master
+  become: true
+
+  tasks:
+    # Проверяем, не установлен ли Calico уже (есть ли namespace).
+    - name: Проверить, установлен ли Calico
+      ansible.builtin.command: kubectl get namespace tigera-operator
+      register: calico_ns
+      failed_when: false               # не падать, если namespace нет
+      changed_when: false
+
+    - name: Установить оператор Tigera (Calico)
+      ansible.builtin.command:
+        cmd: kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/tigera-operator.yaml
+      # rc != 0 у предыдущей проверки = namespace нет = Calico не стоит
+      when: calico_ns.rc != 0
+
+    # Конфиг Installation с нашим pod_cidr. Кладём как файл на ноду,
+    # потом применяем — так удобнее подставить переменную.
+    - name: Положить манифест настройки Calico (pod-CIDR)
+      ansible.builtin.copy:
+        dest: /root/calico-installation.yaml
+        content: |
+          apiVersion: operator.tigera.io/v1
+          kind: Installation
+          metadata:
+            name: default
+          spec:
+            calicoNetwork:
+              ipPools:
+              - blockSize: 26
+                cidr: {{ pod_cidr }}
+                encapsulation: VXLANCrossSubnet
+                natOutgoing: Enabled
+                nodeSelector: all()
+        mode: '0644'
+      when: calico_ns.rc != 0
+
+    - name: Применить настройку Calico
+      ansible.builtin.command: kubectl apply -f /root/calico-installation.yaml
+      when: calico_ns.rc != 0
+
+    # Ждём, пока master станет Ready (Calico поднялся).
+    - name: Дождаться готовности ноды master (до 5 минут)
+      ansible.builtin.command: kubectl wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=300s
+      changed_when: false
+      # Если кластер уже был готов — wait вернётся мгновенно.
+
+
+# #####################################################################
+# PLAY 3 — генерация join-команды (на master)
+# #####################################################################
+- name: Подготовка команды присоединения worker'ов
+  hosts: master
+  become: true
+
+  tasks:
+    # kubeadm token create --print-join-command выдаёт готовую строку
+    # "kubeadm join ..." с актуальным токеном и хэшем CA.
+    - name: Сгенерировать join-команду
+      ansible.builtin.command: kubeadm token create --print-join-command
+      register: join_command_raw
+      changed_when: false
+
+    # Сохраняем строку в факт, доступный другим хостам (worker'ам).
+    # hostvars[...] позволяет worker'у прочитать переменную master'а.
+    - name: Сохранить join-команду в переменную
+      ansible.builtin.set_fact:
+        join_command: "{{ join_command_raw.stdout }}"
+
+
+# #####################################################################
+# PLAY 4 — присоединение worker'ов
+# #####################################################################
+- name: Присоединение worker-нод к кластеру
+  hosts: workers
+  become: true
+
+  tasks:
+    # Проверяем, не в кластере ли уже этот worker.
+    # Признак — наличие kubelet.conf (создаётся при успешном join).
+    - name: Проверить, присоединён ли worker
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf
+
+    - name: Выполнить kubeadm join (только если ещё не в кластере)
+      # Берём join-команду, которую master сохранил в Play 3.
+      # hostvars['master'] — доступ к переменным master-ноды.
+      ansible.builtin.command: "{{ hostvars[groups['master'][0]]['join_command'] }}"
+      when: not kubelet_conf.stat.exists
+
+
+# #####################################################################
+# PLAY 5 — финальная проверка (на master)
+# #####################################################################
+- name: Проверка состояния кластера
+  hosts: master
+  become: true
+
+  tasks:
+    - name: Получить список нод
+      ansible.builtin.command: kubectl get nodes -o wide
+      register: nodes_out
+      changed_when: false
+
+    - name: Показать ноды
+      ansible.builtin.debug:
+        var: nodes_out.stdout_lines
