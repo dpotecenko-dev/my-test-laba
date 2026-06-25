@@ -1,0 +1,193 @@
+---
+# =====================================================================
+# tasks/main.yml — ГЛАВНЫЙ файл роли k8s_prereqs
+# =====================================================================
+# Ansible выполняет ИМЕННО этот файл, когда playbook вызывает роль.
+# Каждый блок "- name:" — отдельный шаг (task).
+# Шаги выполняются СВЕРХУ ВНИЗ по порядку.
+#
+# Эта роль готовит ноду Debian к работе в кластере Kubernetes —
+# делает всё то, что мы делали руками, но повторяемо и идемпотентно.
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# БЛОК 1. SWAP
+# Kubernetes требует выключенный swap (kubelet иначе не стартует).
+# ---------------------------------------------------------------------
+
+- name: Выключить swap прямо сейчас
+  # Модуль command просто выполняет команду на ноде.
+  ansible.builtin.command: swapoff -a
+  # swapoff не сообщает Ansible, изменилось ли что-то, поэтому Ansible
+  # всегда считал бы этот шаг "изменённым". changed_when: false говорит:
+  # "не считай это изменением" — чтобы вывод был честным.
+  changed_when: false
+
+- name: Закомментировать swap в /etc/fstab (чтобы не вернулся после ребута)
+  # Модуль replace ищет строки по регулярке и заменяет их.
+  ansible.builtin.replace:
+    path: /etc/fstab
+    # Находим строку про swap, которая ещё НЕ закомментирована (^[^#])
+    regexp: '^([^#].*\s+swap\s+.*)$'
+    # Дописываем "# " в начало — комментируем её
+    replace: '# \1'
+
+
+# ---------------------------------------------------------------------
+# БЛОК 2. МОДУЛИ ЯДРА
+# overlay — для файловой системы контейнеров.
+# br_netfilter — чтобы трафик через мост проходил через iptables.
+# ---------------------------------------------------------------------
+
+- name: Записать список модулей ядра для автозагрузки при старте
+  # Модуль copy с параметром content создаёт файл с заданным содержимым.
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: '0644'
+
+- name: Загрузить модули ядра прямо сейчас (без перезагрузки)
+  # Модуль modprobe грузит модуль ядра.
+  community.general.modprobe:
+    name: "{{ item }}"          # {{ item }} — текущий элемент цикла
+    state: present
+  # loop повторяет задачу для каждого элемента списка.
+  # kernel_modules определён в defaults/main.yml.
+  loop: "{{ kernel_modules }}"
+
+
+# ---------------------------------------------------------------------
+# БЛОК 3. SYSCTL (параметры сети ядра)
+# Нужны, чтобы работала маршрутизация подов и сетевые политики.
+# ---------------------------------------------------------------------
+
+- name: Настроить sysctl-параметры для Kubernetes
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/k8s.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward                 = 1
+    mode: '0644'
+  # notify "будит" handler, НО только если этот шаг что-то изменил.
+  # Имя должно совпасть с именем handler в handlers/main.yml.
+  notify: Применить sysctl
+
+
+# ---------------------------------------------------------------------
+# БЛОК 4. PIGZ
+# Та самая утилита, без которой containerd не мог распаковать образы
+# (ошибка unpigz: no such file). Ставим заранее на каждую ноду.
+# ---------------------------------------------------------------------
+
+- name: Установить pigz (нужен containerd для распаковки слоёв образов)
+  # Модуль apt управляет пакетами на Debian/Ubuntu.
+  ansible.builtin.apt:
+    name: pigz
+    state: present              # present = "должен быть установлен"
+    update_cache: true          # сначала обновить список пакетов (apt update)
+
+
+# ---------------------------------------------------------------------
+# БЛОК 5. CONTAINERD (контейнерный runtime)
+# ---------------------------------------------------------------------
+
+- name: Установить containerd
+  ansible.builtin.apt:
+    name: containerd
+    state: present
+
+- name: Создать каталог для конфига containerd
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory            # state: directory = "папка должна существовать"
+    mode: '0755'
+
+- name: Сгенерировать дефолтный конфиг containerd
+  ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
+  args:
+    # creates: файл — "не выполняй, если этот файл уже есть".
+    # Защита от перезаписи конфига при повторных запусках.
+    creates: /etc/containerd/config.toml
+
+- name: Включить SystemdCgroup (без этого нода зависает в NotReady)
+  ansible.builtin.replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+  notify: Перезапустить containerd
+
+- name: Включить и запустить containerd
+  # Модуль systemd управляет сервисами systemd.
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: true               # автозапуск при загрузке ноды
+    state: started              # сервис должен быть запущен сейчас
+
+
+# ---------------------------------------------------------------------
+# БЛОК 6. APT-РЕПОЗИТОРИЙ KUBERNETES
+# Без него apt не знает, откуда брать kubelet/kubeadm/kubectl.
+# ---------------------------------------------------------------------
+
+- name: Установить пакеты, нужные для подключения репозитория
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gpg
+    state: present
+    update_cache: true
+
+- name: Создать каталог для GPG-ключей apt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Скачать и положить GPG-ключ репозитория Kubernetes
+  # get_url скачивает файл по URL. Здесь сразу сохраняем как .asc,
+  # затем конвертируем в бинарный keyring следующей задачей.
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/deb/Release.key"
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    mode: '0644'
+
+- name: Сконвертировать ключ в формат gpg (dearmor)
+  ansible.builtin.command:
+    cmd: gpg --dearmor --yes -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    # creates: не выполнять, если бинарный ключ уже создан
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: Подключить apt-репозиторий Kubernetes
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/deb/ /"
+    filename: kubernetes        # создаст /etc/apt/sources.list.d/kubernetes.list
+    state: present
+
+
+# ---------------------------------------------------------------------
+# БЛОК 7. ПАКЕТЫ KUBERNETES
+# ---------------------------------------------------------------------
+
+- name: Установить kubelet, kubeadm, kubectl
+  ansible.builtin.apt:
+    name: "{{ k8s_packages }}"  # список из defaults/main.yml
+    state: present
+    update_cache: true          # обновить кэш — репозиторий только что добавлен
+
+- name: Зафиксировать версии пакетов (apt-mark hold)
+  # dpkg_selections с selection: hold = "не обновлять этот пакет автоматически".
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: "{{ k8s_packages }}"
+
+- name: Включить kubelet (запустится сам, когда нода войдёт в кластер)
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true
+

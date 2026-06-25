@@ -1,0 +1,14 @@
+---
+# Версия Kubernetes (минорная ветка) — используется в URL apt-репозитория
+k8s_version: "v1.30"
+
+# Пакеты Kubernetes, которые ставим и замораживаем (hold)
+k8s_packages:
+  - kubelet
+  - kubeadm
+  - kubectl
+
+# Модули ядра для сети контейнеров
+kernel_modules:
+  - overlay
+  - br_netfilter
