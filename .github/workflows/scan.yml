@@ -4,15 +4,16 @@ name: Scan
 # Ничего не деплоит — только проверяет манифесты и YAML.
 on:
   push:
-    branches: [main]
+    branches: [main dev]
   pull_request:
-    branches: [main]
- 
+    branches: [main dev]
+  workflow_dispatch: 
+  
 # Разрешения минимальны: читать код + писать алерты безопасности (для CodeQL).
 permissions:
   contents: read
-  security-events: write
- 
+  packages: write
+
 jobs:
   # ---------------------------------------------------------------------------
   # 1. Линт всех YAML-файлов на синтаксис и стиль
@@ -53,24 +54,4 @@ jobs:
           kubeconform -summary -strict -ignore-missing-schemas \
             -kubernetes-version 1.30.0 \
             k8s/
- 
-  # ---------------------------------------------------------------------------
-  # 3. CodeQL — статический анализ безопасности.
-  #    Полезен, когда в репо появится код приложения (не только манифесты).
-  # ---------------------------------------------------------------------------
-  codeql:
-    name: CodeQL analysis
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
- 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          # Подставь языки своего приложения: javascript, python, go, java, ...
-          # Если кода пока нет — этот job можно временно убрать.
-          languages: javascript
- 
-      - name: Run analysis
-        uses: github/codeql-action/analyze@v3
- 
+
