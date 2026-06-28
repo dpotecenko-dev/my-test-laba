@@ -59,4 +59,3 @@ services:
 networks:
   mon:
     driver: bridge
-
