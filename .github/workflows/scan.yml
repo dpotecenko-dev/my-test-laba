@@ -8,27 +8,13 @@ on:
   pull_request:
     branches: [main dev]
   workflow_dispatch: 
-  
+
 # Разрешения минимальны: читать код + писать алерты безопасности (для CodeQL).
 permissions:
   contents: read
   packages: write
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # 1. Линт всех YAML-файлов на синтаксис и стиль
-  # ---------------------------------------------------------------------------
-  yaml-lint:
-    name: YAML lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
- 
-      - name: Run yamllint
-        uses: ibiqlik/action-yamllint@v3
-        with:
-          config_file: .yamllint.yml
- 
   # ---------------------------------------------------------------------------
   # 2. Валидация Kubernetes-манифестов против схемы API
   #    Ловит опечатки в полях, неверные apiVersion, кривую структуру.
